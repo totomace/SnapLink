@@ -1,0 +1,9 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd apps/server && npm install && npx prisma generate"
+
+[deploy]
+startCommand = "cd apps/server && npx tsx src/index.ts"
+
+[service]
+rootDirectory = "apps/server"
