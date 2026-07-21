@@ -1,6 +1,7 @@
 {
   "name": "snap-link",
   "private": true,
+  "main": "electron/main.js",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -8,6 +9,35 @@
   "scripts": {
     "dev:server": "npm -w @snap-link/server run dev",
     "dev:web": "npm -w @snap-link/web run dev",
-    "db:push": "npm -w @snap-link/server run db:push"
+    "db:push": "npm -w @snap-link/server run db:push",
+    "electron:dev": "concurrently \"npm run dev:web\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm -w @snap-link/web run build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.snaplink.app",
+    "productName": "SnapLink",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "apps/web/dist/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.0.10"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/websocket": "^11.3.0",
+    "@prisma/client": "^7.9.0",
+    "fastify": "^5.10.0"
   }
 }

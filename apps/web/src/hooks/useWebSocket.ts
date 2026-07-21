@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 
 export function useWebSocket(roomCode: string | null) {
   const [connected, setConnected] = useState(false);
@@ -8,7 +8,11 @@ export function useWebSocket(roomCode: string | null) {
   useEffect(() => {
     if (!roomCode) return;
 
-    const ws = new WebSocket('ws://localhost:3001/ws/' + roomCode + '?deviceId=web-' + Date.now());
+    // Tự động dùng hostname từ trình duyệt (localhost hoặc IP)
+    const host = window.location.hostname;
+    const wsUrl = `ws://${host}:3001`;
+
+    const ws = new WebSocket(`${wsUrl}/ws/${roomCode}?deviceId=web-${Date.now()}`);
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
