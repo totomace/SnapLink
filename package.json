@@ -1,0 +1,13 @@
+{
+  "name": "snap-link",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "npm -w @snap-link/server run dev",
+    "dev:web": "npm -w @snap-link/web run dev",
+    "db:push": "npm -w @snap-link/server run db:push"
+  }
+}

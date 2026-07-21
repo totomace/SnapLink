@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  devices   Device[]
+  createdAt DateTime @default(now())
+}
+
+model Device {
+  id     String @id @default(uuid())
+  name   String
+  type   String
+  ip     String?
+  roomId String?
+  room   Room?  @relation(fields: [roomId], references: [id])
+}
+
+model Transfer {
+  id        String   @id @default(uuid())
+  roomId    String
+  fromId    String
+  fileName  String
+  fileSize  Int
+  fileType  String
+  fileData  String?
+  createdAt DateTime @default(now())
+}
