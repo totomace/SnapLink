@@ -22,14 +22,3 @@ model Device {
   roomId String?
   room   Room?  @relation(fields: [roomId], references: [id])
 }
-
-model Transfer {
-  id        String   @id @default(uuid())
-  roomId    String
-  fromId    String
-  fileName  String
-  fileSize  Int
-  fileType  String
-  fileData  String?
-  createdAt DateTime @default(now())
-}
