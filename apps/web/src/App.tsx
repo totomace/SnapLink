@@ -74,7 +74,19 @@ function Header({
   );
 }
 
-function PairingScreen({ url, roomCode }: { url: string; roomCode: string }) {
+function PairingScreen({
+  url,
+  roomCode,
+  onLeave,
+  onPickFolder,
+  folder,
+}: {
+  url: string;
+  roomCode: string;
+  onLeave: () => void;
+  onPickFolder: () => void;
+  folder: FileSystemDirectoryHandle | null;
+}) {
   return (
     <div style={styles.centerContent}>
       <div style={styles.qrWrapper}>
@@ -90,6 +102,14 @@ function PairingScreen({ url, roomCode }: { url: string; roomCode: string }) {
           style={styles.copyBtnSmall}
         >
           Copy
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button onClick={onPickFolder} style={styles.secondaryButton}>
+          {folder ? '📂 Folder set' : 'Set download folder'}
+        </button>
+        <button onClick={onLeave} style={styles.secondaryButton}>
+          Leave Room
         </button>
       </div>
     </div>
@@ -173,12 +193,14 @@ function SenderScreen({
   onDragOver,
   onDragLeave,
   onDrop,
+  onLeave,
 }: {
   onSendFiles: () => void;
   isDragging: boolean;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent) => void;
+  onLeave: () => void;
 }) {
   return (
     <div style={styles.centerContent}>
@@ -202,19 +224,20 @@ function SenderScreen({
       <p style={{ color: '#737373', fontSize: 13, marginTop: 16 }}>
         Photos will be sent instantly to the laptop
       </p>
+      <button onClick={onLeave} style={{ ...styles.secondaryButton, marginTop: 16 }}>
+        Leave Room
+      </button>
     </div>
   );
 }
 
 /* ---------- MAIN APP ---------- */
 export default function App() {
-  // ----- state -----
-  const initialRoomFromUrl = (
-    new URLSearchParams(window.location.search).get('room') || ''
-  ).trim().toUpperCase();
-  const [roomCode, setRoomCode] = useState<string | null>(
-    initialRoomFromUrl || null
-  );
+  // Lấy room từ URL nếu có
+  const initialRoom = (new URLSearchParams(window.location.search).get('room') || '').trim().toUpperCase();
+  const [roomCode, setRoomCode] = useState<string | null>(initialRoom || null);
+  const [isHost, setIsHost] = useState<boolean | null>(initialRoom ? false : null);
+  const [phoneConnected, setPhoneConnected] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [history, setHistory] = useState<FileRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,31 +250,47 @@ export default function App() {
     total?: number;
     name?: string;
   } | null>(null);
-  const [copied, setCopied] = useState(false);
-  // Phân biệt host (laptop) và guest (điện thoại)
-  const [isHost, setIsHost] = useState<boolean | null>(null);
-  // Trạng thái có điện thoại kết nối vào phòng (chỉ dành cho host)
-  const [phoneConnected, setPhoneConnected] = useState(false);
 
   const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
 
-  // Khi host tạo phòng, đánh dấu isHost = true
-  useEffect(() => {
-    if (initialRoomFromUrl && isHost === null) {
-      // Nếu vào trang qua URL (quét QR) -> guest
-      setIsHost(false);
+  // Xác định host/guest khi tạo hoặc join phòng thủ công
+  const createRoom = async () => {
+    try {
+      if ('Notification' in window && Notification.permission === 'default') {
+        await Notification.requestPermission();
+      }
+      const res = await fetch(`${API_URL}/api/rooms`, { method: 'POST' });
+      const { data } = await res.json();
+      setRoomCode(data.code);
+      setIsHost(true);
+    } catch {
+      alert('Cannot connect to server');
     }
-  }, []);
+  };
 
-  // Lắng nghe sự kiện device-joined để cập nhật phoneConnected cho host
+  const joinRoom = () => {
+    if (!joinCode.trim()) return;
+    setRoomCode(joinCode.trim().toUpperCase());
+    setIsHost(false);
+  };
+
+  const leaveRoom = () => {
+    setRoomCode(null);
+    setIsHost(null);
+    setPhoneConnected(false);
+    setHistory([]);
+  };
+
+  // Phát hiện điện thoại kết nối (chỉ host mới quan tâm)
   useEffect(() => {
     if (isHost && lastMessage?.type === 'device-joined') {
       setPhoneConnected(true);
     }
   }, [lastMessage, isHost]);
 
-  // ----- data loading -----
+  // Tải lịch sử ảnh (chỉ host mới cần)
   useEffect(() => {
+    if (!isHost) return;
     (async () => {
       try {
         const files = await getAllFiles();
@@ -262,9 +301,9 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [isHost]);
 
-  // ----- save to folder -----
+  // Lưu ảnh nhận được vào gallery và folder
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
     if (!folder) return;
     try {
@@ -281,9 +320,11 @@ export default function App() {
     }
   };
 
-  // ----- receive file -----
   useEffect(() => {
     if (!lastMessage?.type || lastMessage.type !== 'file' || !lastMessage.data) return;
+
+    // Chỉ host mới xử lý ảnh nhận
+    if (!isHost) return;
 
     setTransferStatus({ type: 'receiving', name: lastMessage.name });
     const processReceived = async () => {
@@ -312,9 +353,9 @@ export default function App() {
     };
 
     processReceived();
-  }, [lastMessage, folder]);
+  }, [lastMessage, folder, isHost]);
 
-  // ----- send files (phone side) -----
+  // Guest gửi file
   const processFiles = useCallback(async (files: File[]) => {
     setTransferStatus({ type: 'sending', current: 0, total: files.length });
     for (let i = 0; i < files.length; i++) {
@@ -332,46 +373,29 @@ export default function App() {
         data: base64,
         timestamp,
       });
-      // Lưu vào lịch sử gửi (cho phone nếu muốn hiển thị)
-      const sentFile: FileRecord = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: file.name,
-        fileType: file.type,
-        size: file.size,
-        data: base64,
-        direction: 'sent',
-        timestamp,
-      };
-      try {
-        await addFile(sentFile);
-        setHistory(prev => [sentFile, ...prev]);
-      } catch (err) {
-        console.error(err);
-      }
+      // Guest không lưu vào gallery, nhưng nếu muốn lưu lịch sử gửi có thể thêm vào IndexedDB riêng (tạm bỏ)
       setTransferStatus(prev => prev ? { ...prev, current: i + 1 } : null);
     }
     setTransferStatus(null);
   }, [sendMessage]);
 
-  // ----- room actions -----
-  const createRoom = async () => {
+  // Xóa file (chỉ host dùng)
+  const removeFile = async (id: string) => {
     try {
-      if ('Notification' in window && Notification.permission === 'default') {
-        await Notification.requestPermission();
-      }
-      const res = await fetch(`${API_URL}/api/rooms`, { method: 'POST' });
-      const { data } = await res.json();
-      setRoomCode(data.code);
-      setIsHost(true);
-    } catch {
-      alert('Cannot connect to server');
+      await deleteFile(id);
+      setHistory(prev => prev.filter(f => f.id !== id));
+    } catch (err) {
+      console.error('Failed to delete file', err);
     }
   };
 
-  const joinRoom = () => {
-    if (!joinCode.trim()) return;
-    setRoomCode(joinCode.trim().toUpperCase());
-    setIsHost(false);
+  const clearAll = async () => {
+    try {
+      await clearFiles();
+      setHistory([]);
+    } catch (err) {
+      console.error('Failed to clear history', err);
+    }
   };
 
   const openFileDialog = () => {
@@ -411,29 +435,10 @@ export default function App() {
     } catch { /* user cancelled */ }
   };
 
-  // ----- file deletion -----
-  const removeFile = async (id: string) => {
-    try {
-      await deleteFile(id);
-      setHistory(prev => prev.filter(f => f.id !== id));
-    } catch (err) {
-      console.error('Failed to delete file', err);
-    }
-  };
-
-  const clearAll = async () => {
-    try {
-      await clearFiles();
-      setHistory([]);
-    } catch (err) {
-      console.error('Failed to clear history', err);
-    }
-  };
-
-  // ----- render logic -----
+  // ----- Render -----
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
 
-  // Trang chủ (chưa vào phòng)
+  // Trang chủ
   if (!roomCode) {
     return (
       <div style={styles.shell}>
@@ -468,7 +473,7 @@ export default function App() {
     );
   }
 
-  // Đã vào phòng – phân nhánh theo vai trò
+  // Trong phòng
   return (
     <div style={styles.shell}>
       <Header
@@ -478,42 +483,48 @@ export default function App() {
         roomCode={roomCode}
       />
 
-      {/* Host: laptop nhận ảnh */}
-      {isHost && (
-        <>
-          {!phoneConnected ? (
-            <PairingScreen url={url} roomCode={roomCode} />
-          ) : (
-            <div style={styles.mainContent}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-                <button onClick={pickFolder} style={styles.secondaryButton}>
-                  {folder ? '📂 Folder set' : 'Set download folder'}
-                </button>
-              </div>
-              <GalleryView
-                history={history}
-                loading={loading}
-                onSelect={setSelectedFile}
-                onDelete={removeFile}
-                onClear={clearAll}
-              />
+      {isHost ? (
+        // Giao diện Host (laptop)
+        phoneConnected ? (
+          <div style={styles.mainContent}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16, gap: 8 }}>
+              <button onClick={pickFolder} style={styles.secondaryButton}>
+                {folder ? '📂 Folder set' : 'Set download folder'}
+              </button>
+              <button onClick={leaveRoom} style={styles.secondaryButton}>
+                Leave Room
+              </button>
             </div>
-          )}
-        </>
-      )}
-
-      {/* Guest: điện thoại gửi ảnh */}
-      {isHost === false && (
+            <GalleryView
+              history={history}
+              loading={loading}
+              onSelect={setSelectedFile}
+              onDelete={removeFile}
+              onClear={clearAll}
+            />
+          </div>
+        ) : (
+          <PairingScreen
+            url={url}
+            roomCode={roomCode}
+            onLeave={leaveRoom}
+            onPickFolder={pickFolder}
+            folder={folder}
+          />
+        )
+      ) : (
+        // Giao diện Guest (điện thoại)
         <SenderScreen
           onSendFiles={openFileDialog}
           isDragging={isDragging}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onLeave={leaveRoom}
         />
       )}
 
-      {/* Transfer toast (giữ nguyên) */}
+      {/* Transfer toast */}
       {transferStatus && (
         <div style={styles.toast}>
           {transferStatus.type === 'sending' && transferStatus.total ? (
@@ -534,7 +545,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal xem ảnh (giữ nguyên) */}
+      {/* Modal xem ảnh */}
       {selectedFile && (
         <div style={styles.modalOverlay} onClick={() => setSelectedFile(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -587,6 +598,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     paddingBottom: 24,
     borderBottom: '1px solid #E5E5E5',
+    marginBottom: 24,
   },
   brand: {
     fontSize: 18,
@@ -612,7 +624,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 80,
+    marginTop: 60,
     gap: 24,
   },
   title: {
