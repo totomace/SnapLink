@@ -176,6 +176,10 @@ function App() {
       const res = await fetch(`${API_URL}/api/rooms`, { method: 'POST' });
       const { data } = await res.json();
       setRoomCode(data.code);
+
+      console.log("API response:", data);
+      console.log("roomCode:", data.code);
+
     } catch {
       alert('Cannot connect to server');
     }
@@ -264,6 +268,12 @@ function App() {
   };
 
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
+
+  // Debug: kiểm tra giá trị roomCode và url
+  useEffect(() => {
+    console.log("roomCode:", roomCode);
+    console.log("url:", url);
+  }, [roomCode, url]);
 
   // Hiển thị loading khi tự động vào phòng từ QR
   if (initializing && new URLSearchParams(window.location.search).get('room')) {
