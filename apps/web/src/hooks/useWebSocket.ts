@@ -9,8 +9,7 @@ export function useWebSocket(roomCode: string | null) {
     if (!roomCode) return;
 
     // Tự động dùng hostname từ trình duyệt (localhost hoặc IP)
-    const host = window.location.hostname;
-    const wsUrl = `ws://${host}:3001`;
+const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3001`;
 
     const ws = new WebSocket(`${wsUrl}/ws/${roomCode}?deviceId=web-${Date.now()}`);
     wsRef.current = ws;

@@ -3,9 +3,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { addFile, getAllFiles, clearFiles, deleteFile, FileRecord } from './services/db';
 
-const serverHost = window.location.hostname === 'localhost' ? 'localhost' : window.location.hostname;
-const API_URL = `http://${window.location.hostname}:3001`;
-const WS_URL = `ws://${serverHost}:3001`;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3001`;
 
 declare global {
   interface Window {
