@@ -46,9 +46,11 @@ function App() {
     total?: number;
     name?: string;
   } | null>(null);
+  const [initializing, setInitializing] = useState(true); // <-- Thêm state này
 
-const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
+  const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
 
+  // Tải lịch sử file
   useEffect(() => {
     (async () => {
       try {
@@ -62,13 +64,14 @@ const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
     })();
   }, []);
 
-    // Tự động join phòng nếu URL có tham số ?room=
+  // Tự động join phòng nếu URL có ?room=
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomFromUrl = params.get('room');
-    if (roomFromUrl && !roomCode) {
+    if (roomFromUrl) {
       setRoomCode(roomFromUrl.trim().toUpperCase());
     }
+    setInitializing(false);
   }, []);
 
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
@@ -261,6 +264,18 @@ const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
   };
 
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
+
+  // Hiển thị loading khi tự động vào phòng từ QR
+  if (initializing && new URLSearchParams(window.location.search).get('room')) {
+    return (
+      <div style={s.shell}>
+        <div style={{ marginTop: 120, textAlign: 'center' }}>
+          <h1 style={s.title}>SnapLink</h1>
+          <p style={{ color: '#737373', marginTop: 16 }}>Entering room...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (roomCode) {
     return (
