@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { addFile, getAllFiles, clearFiles, deleteFile, FileRecord } from './services/db';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:3001`;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3001`;
 
 declare global {
@@ -32,7 +32,13 @@ function downloadBase64(data: string, fileName: string, fileType: string) {
 }
 
 function App() {
-  const [roomCode, setRoomCode] = useState<string | null>(null);
+  // Khởi tạo roomCode trực tiếp từ URL (nếu có) - tránh chớp màn hình chính
+  const [roomCode, setRoomCode] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomFromUrl = params.get('room');
+    return roomFromUrl ? roomFromUrl.trim().toUpperCase() : null;
+  });
+
   const [joinCode, setJoinCode] = useState('');
   const [history, setHistory] = useState<FileRecord[]>([]);
   const [copied, setCopied] = useState(false);
@@ -46,7 +52,6 @@ function App() {
     total?: number;
     name?: string;
   } | null>(null);
-  const [initializing, setInitializing] = useState(true); // <-- Thêm state này
 
   const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
 
@@ -62,16 +67,6 @@ function App() {
         setLoading(false);
       }
     })();
-  }, []);
-
-  // Tự động join phòng nếu URL có ?room=
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const roomFromUrl = params.get('room');
-    if (roomFromUrl) {
-      setRoomCode(roomFromUrl.trim().toUpperCase());
-    }
-    setInitializing(false);
   }, []);
 
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
@@ -176,10 +171,6 @@ function App() {
       const res = await fetch(`${API_URL}/api/rooms`, { method: 'POST' });
       const { data } = await res.json();
       setRoomCode(data.code);
-
-      console.log("API response:", data);
-      console.log("roomCode:", data.code);
-
     } catch {
       alert('Cannot connect to server');
     }
@@ -268,24 +259,6 @@ function App() {
   };
 
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
-
-  // Debug: kiểm tra giá trị roomCode và url
-  useEffect(() => {
-    console.log("roomCode:", roomCode);
-    console.log("url:", url);
-  }, [roomCode, url]);
-
-  // Hiển thị loading khi tự động vào phòng từ QR
-  if (initializing && new URLSearchParams(window.location.search).get('room')) {
-    return (
-      <div style={s.shell}>
-        <div style={{ marginTop: 120, textAlign: 'center' }}>
-          <h1 style={s.title}>SnapLink</h1>
-          <p style={{ color: '#737373', marginTop: 16 }}>Entering room...</p>
-        </div>
-      </div>
-    );
-  }
 
   if (roomCode) {
     return (
