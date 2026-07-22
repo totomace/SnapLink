@@ -62,6 +62,15 @@ const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
     })();
   }, []);
 
+    // Tự động join phòng nếu URL có tham số ?room=
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomFromUrl = params.get('room');
+    if (roomFromUrl && !roomCode) {
+      setRoomCode(roomFromUrl.trim().toUpperCase());
+    }
+  }, []);
+
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
     if (!folder) return;
     try {
