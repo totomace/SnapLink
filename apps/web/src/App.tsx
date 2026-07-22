@@ -3,9 +3,11 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { addFile, getAllFiles, clearFiles, deleteFile, FileRecord } from './services/db';
 
+/* ---------- CONSTANTS ---------- */
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3001`;
 
+/* ---------- UTILS ---------- */
 declare global {
   interface Window {
     showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
@@ -31,20 +33,193 @@ function downloadBase64(data: string, fileName: string, fileType: string) {
   URL.revokeObjectURL(url);
 }
 
-function App() {
-  // Khởi tạo roomCode trực tiếp từ URL (nếu có) - tránh chớp màn hình chính
-  const [roomCode, setRoomCode] = useState<string | null>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const roomFromUrl = params.get('room');
-    return roomFromUrl ? roomFromUrl.trim().toUpperCase() : null;
-  });
+/* ---------- COMPONENTS ---------- */
+function Header({
+  isHost,
+  connected,
+  phoneConnected,
+  roomCode,
+}: {
+  isHost: boolean | null;
+  connected: boolean;
+  phoneConnected: boolean;
+  roomCode: string | null;
+}) {
+  const statusText = isHost
+    ? phoneConnected
+      ? 'Phone Connected'
+      : 'Waiting for phone...'
+    : 'Connected';
 
+  const dotColor = connected ? '#10b981' : '#d4d4d4';
+
+  return (
+    <div style={styles.header}>
+      <span style={styles.brand}>SnapLink</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {isHost && roomCode && (
+          <span style={styles.roomCodeSmall}>{roomCode}</span>
+        )}
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: dotColor,
+          }}
+        />
+        <span style={styles.statusText}>{statusText}</span>
+      </div>
+    </div>
+  );
+}
+
+function PairingScreen({ url, roomCode }: { url: string; roomCode: string }) {
+  return (
+    <div style={styles.centerContent}>
+      <div style={styles.qrWrapper}>
+        <QRCodeSVG value={url} size={200} bgColor="#ffffff" fgColor="#111111" level="M" />
+      </div>
+      <p style={styles.scanHint}>Scan this QR with your phone</p>
+      <div style={styles.codeDisplay}>
+        <span style={{ fontSize: 20, fontFamily: 'monospace', letterSpacing: 4 }}>
+          {roomCode}
+        </span>
+        <button
+          onClick={() => navigator.clipboard.writeText(roomCode)}
+          style={styles.copyBtnSmall}
+        >
+          Copy
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GalleryView({
+  history,
+  loading,
+  onSelect,
+  onDelete,
+  onClear,
+}: {
+  history: FileRecord[];
+  loading: boolean;
+  onSelect: (file: FileRecord) => void;
+  onDelete: (id: string) => void;
+  onClear: () => void;
+}) {
+  if (history.length === 0) {
+    return (
+      <div style={styles.emptyState}>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>📷</div>
+        <p style={{ color: '#737373', fontSize: 15 }}>No photos yet</p>
+        <p style={{ color: '#A3A3A3', fontSize: 13, marginTop: 4 }}>
+          Waiting for incoming photos...
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.galleryContainer}>
+      <div style={styles.galleryHeader}>
+        <span style={{ fontWeight: 500, color: '#111' }}>Photos</span>
+        <button onClick={onClear} style={styles.clearButton}>
+          Clear all
+        </button>
+      </div>
+      <div style={styles.grid}>
+        {history.map((file) => (
+          <div
+            key={file.id}
+            style={styles.thumbnail}
+            onClick={() => onSelect(file)}
+          >
+            {file.fileType.startsWith('video/') ? (
+              <video
+                src={`data:${file.fileType};base64,${file.data}`}
+                style={styles.media}
+              />
+            ) : (
+              <img
+                src={`data:${file.fileType};base64,${file.data}`}
+                alt={file.name}
+                style={styles.media}
+              />
+            )}
+            <button
+              style={styles.deleteButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(file.id);
+              }}
+            >
+              ×
+            </button>
+            <div style={styles.fileInfo}>
+              <span>{formatSize(file.size || file.data.length * 0.75 || 0)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SenderScreen({
+  onSendFiles,
+  isDragging,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  onSendFiles: () => void;
+  isDragging: boolean;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent) => void;
+}) {
+  return (
+    <div style={styles.centerContent}>
+      <div
+        style={{
+          ...styles.dropZone,
+          borderColor: isDragging ? '#111' : '#E5E5E5',
+          background: isDragging ? '#F9F9F9' : '#fff',
+        }}
+        onClick={onSendFiles}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
+        <div style={{ fontWeight: 500, color: '#111', marginBottom: 4 }}>
+          Tap to select photos
+        </div>
+        <div style={{ color: '#737373', fontSize: 13 }}>or drag & drop</div>
+      </div>
+      <p style={{ color: '#737373', fontSize: 13, marginTop: 16 }}>
+        Photos will be sent instantly to the laptop
+      </p>
+    </div>
+  );
+}
+
+/* ---------- MAIN APP ---------- */
+export default function App() {
+  // ----- state -----
+  const initialRoomFromUrl = (
+    new URLSearchParams(window.location.search).get('room') || ''
+  ).trim().toUpperCase();
+  const [roomCode, setRoomCode] = useState<string | null>(
+    initialRoomFromUrl || null
+  );
   const [joinCode, setJoinCode] = useState('');
   const [history, setHistory] = useState<FileRecord[]>([]);
-  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedFile, setSelectedFile] = useState<FileRecord | null>(null);
-  const [isDraggingOverDropZone, setIsDraggingOverDropZone] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [folder, setFolder] = useState<FileSystemDirectoryHandle | null>(null);
   const [transferStatus, setTransferStatus] = useState<{
     type: 'sending' | 'receiving';
@@ -52,10 +227,30 @@ function App() {
     total?: number;
     name?: string;
   } | null>(null);
+  const [copied, setCopied] = useState(false);
+  // Phân biệt host (laptop) và guest (điện thoại)
+  const [isHost, setIsHost] = useState<boolean | null>(null);
+  // Trạng thái có điện thoại kết nối vào phòng (chỉ dành cho host)
+  const [phoneConnected, setPhoneConnected] = useState(false);
 
   const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
 
-  // Tải lịch sử file
+  // Khi host tạo phòng, đánh dấu isHost = true
+  useEffect(() => {
+    if (initialRoomFromUrl && isHost === null) {
+      // Nếu vào trang qua URL (quét QR) -> guest
+      setIsHost(false);
+    }
+  }, []);
+
+  // Lắng nghe sự kiện device-joined để cập nhật phoneConnected cho host
+  useEffect(() => {
+    if (isHost && lastMessage?.type === 'device-joined') {
+      setPhoneConnected(true);
+    }
+  }, [lastMessage, isHost]);
+
+  // ----- data loading -----
   useEffect(() => {
     (async () => {
       try {
@@ -69,6 +264,7 @@ function App() {
     })();
   }, []);
 
+  // ----- save to folder -----
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
     if (!folder) return;
     try {
@@ -85,6 +281,7 @@ function App() {
     }
   };
 
+  // ----- receive file -----
   useEffect(() => {
     if (!lastMessage?.type || lastMessage.type !== 'file' || !lastMessage.data) return;
 
@@ -117,6 +314,7 @@ function App() {
     processReceived();
   }, [lastMessage, folder]);
 
+  // ----- send files (phone side) -----
   const processFiles = useCallback(async (files: File[]) => {
     setTransferStatus({ type: 'sending', current: 0, total: files.length });
     for (let i = 0; i < files.length; i++) {
@@ -134,6 +332,7 @@ function App() {
         data: base64,
         timestamp,
       });
+      // Lưu vào lịch sử gửi (cho phone nếu muốn hiển thị)
       const sentFile: FileRecord = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: file.name,
@@ -154,15 +353,7 @@ function App() {
     setTransferStatus(null);
   }, [sendMessage]);
 
-  const removeFile = async (id: string) => {
-    try {
-      await deleteFile(id);
-      setHistory(prev => prev.filter(f => f.id !== id));
-    } catch (err) {
-      console.error('Failed to delete file', err);
-    }
-  };
-
+  // ----- room actions -----
   const createRoom = async () => {
     try {
       if ('Notification' in window && Notification.permission === 'default') {
@@ -171,6 +362,7 @@ function App() {
       const res = await fetch(`${API_URL}/api/rooms`, { method: 'POST' });
       const { data } = await res.json();
       setRoomCode(data.code);
+      setIsHost(true);
     } catch {
       alert('Cannot connect to server');
     }
@@ -179,14 +371,7 @@ function App() {
   const joinRoom = () => {
     if (!joinCode.trim()) return;
     setRoomCode(joinCode.trim().toUpperCase());
-  };
-
-  const copyCode = () => {
-    if (roomCode) {
-      navigator.clipboard.writeText(roomCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
+    setIsHost(false);
   };
 
   const openFileDialog = () => {
@@ -201,6 +386,20 @@ function App() {
     input.click();
   };
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    await processFiles(files);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => setIsDragging(false);
+
   const pickFolder = async () => {
     if (!window.showDirectoryPicker) {
       alert('Trình duyệt không hỗ trợ (cần Chrome/Edge desktop)');
@@ -212,44 +411,17 @@ function App() {
     } catch { /* user cancelled */ }
   };
 
-  const handleDropZoneDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDraggingOverDropZone(false);
-    const files = Array.from(e.dataTransfer.files);
-    await processFiles(files);
+  // ----- file deletion -----
+  const removeFile = async (id: string) => {
+    try {
+      await deleteFile(id);
+      setHistory(prev => prev.filter(f => f.id !== id));
+    } catch (err) {
+      console.error('Failed to delete file', err);
+    }
   };
 
-  const handleDropZoneDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDraggingOverDropZone(true);
-  };
-
-  const handleDropZoneDragLeave = () => {
-    setIsDraggingOverDropZone(false);
-  };
-
-  useEffect(() => {
-    const onPaste = (e: ClipboardEvent) => {
-      if (!roomCode) return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const files: File[] = [];
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) files.push(file);
-        }
-      }
-      if (files.length > 0) {
-        e.preventDefault();
-        processFiles(files);
-      }
-    };
-    document.addEventListener('paste', onPaste);
-    return () => document.removeEventListener('paste', onPaste);
-  }, [roomCode, processFiles]);
-
-  const handleClearHistory = async () => {
+  const clearAll = async () => {
     try {
       await clearFiles();
       setHistory([]);
@@ -258,409 +430,309 @@ function App() {
     }
   };
 
+  // ----- render logic -----
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
 
-  if (roomCode) {
+  // Trang chủ (chưa vào phòng)
+  if (!roomCode) {
     return (
-      <div style={s.shell}>
-        <style>{`
-          @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          .file-item {
-            animation: fadeInUp 0.3s ease forwards;
-          }
-        `}</style>
-
-        <div style={s.nav}>
-          <span style={s.brand}>SnapLink</span>
-          <div style={s.statusRow}>
-            <span style={{ ...s.dot, background: connected ? '#10b981' : '#d4d4d4' }} />
-            <span style={s.statusLabel}>{connected ? 'Connected' : 'Waiting...'}</span>
+      <div style={styles.shell}>
+        <div style={styles.centerContent}>
+          <h1 style={styles.title}>SnapLink</h1>
+          <p style={styles.subtitle}>Share photos between your phone and computer</p>
+          <div style={styles.homeActions}>
+            <button onClick={createRoom} style={styles.primaryButton}>
+              Create Room
+            </button>
+            <div style={styles.divider}>
+              <span>or</span>
+            </div>
+            <input
+              type="text"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              placeholder="Room Code"
+              maxLength={6}
+              style={styles.input}
+            />
+            <button
+              onClick={joinRoom}
+              disabled={!joinCode.trim()}
+              style={styles.secondaryButton}
+            >
+              Join Room
+            </button>
           </div>
         </div>
-
-        <div style={s.body}>
-          <div style={s.qrWrap}>
-            <QRCodeSVG value={url} size={200} bgColor="#ffffff" fgColor="#111111" level="M" />
-          </div>
-          <p style={s.scanHint}>Scan with your phone</p>
-
-          <div style={s.codeRow}>
-            <div style={s.codeBox}>
-              <p style={s.codeText}>{roomCode}</p>
-            </div>
-            <button onClick={copyCode} style={s.copyBtn}>
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-
-          <div
-            style={{
-              ...s.dropZone,
-              ...(isDraggingOverDropZone ? s.dropZoneActive : {}),
-            }}
-            onDrop={handleDropZoneDrop}
-            onDragOver={handleDropZoneDragOver}
-            onDragLeave={handleDropZoneDragLeave}
-            onClick={openFileDialog}
-          >
-            <span style={{ fontSize: 32, marginBottom: 8 }}>📁</span>
-            <span style={{ fontSize: 15, fontWeight: 500, color: '#111' }}>Drop files here or click to browse</span>
-            <span style={{ fontSize: 13, color: '#737373' }}>Images, videos • Paste (Ctrl+V) also works</span>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, width: '100%' }}>
-            <button onClick={pickFolder} style={{ ...s.secondaryBtn, flex: 1 }}>
-              {folder ? '📂 Folder set' : 'Set download folder'}
-            </button>
-            <button onClick={() => setRoomCode(null)} style={{ ...s.secondaryBtn, flex: 1 }}>
-              Leave Room
-            </button>
-          </div>
-
-          {history.length > 0 && (
-            <div style={s.filesSection}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <p style={s.sectionTitle}>Recent Files</p>
-                <button onClick={handleClearHistory} style={s.clearBtn}>Clear all</button>
-              </div>
-              {loading ? (
-                <p style={{ color: '#737373', fontSize: 13 }}>Loading...</p>
-              ) : (
-                <div style={s.grid}>
-                  {history.map((file) => (
-                    <div key={file.id} className="file-item" style={s.imgWrap}>
-                      <div onClick={() => setSelectedFile(file)}>
-                        {file.fileType.startsWith('video/') ? (
-                          <video src={`data:${file.fileType};base64,${file.data}`} style={s.media} />
-                        ) : (
-                          <img
-                            src={`data:${file.fileType};base64,${file.data}`}
-                            alt={file.name}
-                            style={s.media}
-                          />
-                        )}
-                      </div>
-                      <button
-                        style={s.deleteBtn}
-                        onClick={(e) => { e.stopPropagation(); removeFile(file.id); }}
-                      >
-                        ×
-                      </button>
-                      <div style={s.fileInfo}>
-                        <span style={{ fontSize: 10, color: '#fff' }}>
-                          {formatSize(file.size || file.data.length * 0.75 || 0)}
-                        </span>
-                        <span style={{
-                          background: file.direction === 'sent' ? '#111' : '#10b981',
-                          color: 'white',
-                          fontSize: 9,
-                          fontWeight: 600,
-                          padding: '1px 4px',
-                          borderRadius: 4,
-                        }}>{file.direction === 'sent' ? 'SENT' : 'RCVD'}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {transferStatus && (
-          <div style={s.transferToast}>
-            {transferStatus.type === 'sending' && transferStatus.total ? (
-              <>
-                <span>Sending {transferStatus.current}/{transferStatus.total} files...</span>
-                <div style={s.progressBar}>
-                  <div style={{ ...s.progressFill, width: `${((transferStatus.current || 0) / transferStatus.total) * 100}%` }} />
-                </div>
-              </>
-            ) : (
-              <span>Receiving {transferStatus.name}...</span>
-            )}
-          </div>
-        )}
-
-        {selectedFile && (
-          <div style={s.modalOverlay} onClick={() => setSelectedFile(null)}>
-            <div style={s.modalContent} onClick={e => e.stopPropagation()}>
-              <button style={s.modalClose} onClick={() => setSelectedFile(null)}>✕</button>
-              {selectedFile.fileType.startsWith('video/') ? (
-                <video
-                  src={`data:${selectedFile.fileType};base64,${selectedFile.data}`}
-                  style={s.modalMedia}
-                  controls
-                  autoPlay
-                />
-              ) : (
-                <img
-                  src={`data:${selectedFile.fileType};base64,${selectedFile.data}`}
-                  alt={selectedFile.name}
-                  style={s.modalMedia}
-                />
-              )}
-              <button
-                style={s.downloadBtn}
-                onClick={() => downloadBase64(selectedFile.data, selectedFile.name, selectedFile.fileType)}
-              >
-                Download
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
+  // Đã vào phòng – phân nhánh theo vai trò
   return (
-    <div style={s.shell}>
-      <div style={s.hero}>
-        <h1 style={s.title}>SnapLink</h1>
-        <p style={s.subtitle}>Share files between your devices</p>
-      </div>
+    <div style={styles.shell}>
+      <Header
+        isHost={isHost}
+        connected={connected}
+        phoneConnected={phoneConnected}
+        roomCode={roomCode}
+      />
 
-      <div style={s.actions}>
-        <button onClick={createRoom} style={s.primaryBtn}>
-          Create Room
-        </button>
+      {/* Host: laptop nhận ảnh */}
+      {isHost && (
+        <>
+          {!phoneConnected ? (
+            <PairingScreen url={url} roomCode={roomCode} />
+          ) : (
+            <div style={styles.mainContent}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                <button onClick={pickFolder} style={styles.secondaryButton}>
+                  {folder ? '📂 Folder set' : 'Set download folder'}
+                </button>
+              </div>
+              <GalleryView
+                history={history}
+                loading={loading}
+                onSelect={setSelectedFile}
+                onDelete={removeFile}
+                onClear={clearAll}
+              />
+            </div>
+          )}
+        </>
+      )}
 
-        <div style={s.divider}>
-          <span style={s.or}>or</span>
-        </div>
-
-        <input
-          type="text"
-          value={joinCode}
-          onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-          placeholder="Room Code"
-          maxLength={6}
-          style={s.input}
+      {/* Guest: điện thoại gửi ảnh */}
+      {isHost === false && (
+        <SenderScreen
+          onSendFiles={openFileDialog}
+          isDragging={isDragging}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         />
+      )}
 
-        <button onClick={joinRoom} disabled={!joinCode.trim()} style={s.secondaryBtn}>
-          Join Room
-        </button>
-      </div>
+      {/* Transfer toast (giữ nguyên) */}
+      {transferStatus && (
+        <div style={styles.toast}>
+          {transferStatus.type === 'sending' && transferStatus.total ? (
+            <>
+              <span>Sending {transferStatus.current}/{transferStatus.total} files...</span>
+              <div style={styles.progressBar}>
+                <div
+                  style={{
+                    ...styles.progressFill,
+                    width: `${((transferStatus.current || 0) / transferStatus.total) * 100}%`,
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <span>Receiving {transferStatus.name}...</span>
+          )}
+        </div>
+      )}
+
+      {/* Modal xem ảnh (giữ nguyên) */}
+      {selectedFile && (
+        <div style={styles.modalOverlay} onClick={() => setSelectedFile(null)}>
+          <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
+            <button style={styles.modalClose} onClick={() => setSelectedFile(null)}>
+              ✕
+            </button>
+            {selectedFile.fileType.startsWith('video/') ? (
+              <video
+                src={`data:${selectedFile.fileType};base64,${selectedFile.data}`}
+                style={styles.modalMedia}
+                controls
+                autoPlay
+              />
+            ) : (
+              <img
+                src={`data:${selectedFile.fileType};base64,${selectedFile.data}`}
+                alt={selectedFile.name}
+                style={styles.modalMedia}
+              />
+            )}
+            <button
+              style={styles.downloadBtn}
+              onClick={() =>
+                downloadBase64(selectedFile.data, selectedFile.name, selectedFile.fileType)
+              }
+            >
+              Download
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-const s: Record<string, React.CSSProperties> = {
+/* ---------- STYLES ---------- */
+const styles: Record<string, React.CSSProperties> = {
   shell: {
     minHeight: '100vh',
     background: '#FAFAFA',
+    fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    padding: '24px 32px',
+    maxWidth: 1200,
+    margin: '0 auto',
+    boxSizing: 'border-box',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 24,
+    borderBottom: '1px solid #E5E5E5',
+  },
+  brand: {
+    fontSize: 18,
+    fontWeight: 600,
+    color: '#111',
+    letterSpacing: -0.3,
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#737373',
+  },
+  roomCodeSmall: {
+    fontFamily: 'monospace',
+    fontSize: 14,
+    color: '#737373',
+    padding: '2px 8px',
+    border: '1px solid #E5E5E5',
+    borderRadius: 8,
+  },
+  centerContent: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    padding: '24px',
-    boxSizing: 'border-box',
-  },
-  hero: {
-    marginTop: '120px',
-    textAlign: 'center',
+    justifyContent: 'center',
+    marginTop: 80,
+    gap: 24,
   },
   title: {
-    fontSize: '32px',
+    fontSize: 32,
     fontWeight: 600,
-    color: '#111111',
-    letterSpacing: '-0.5px',
+    color: '#111',
     margin: 0,
   },
   subtitle: {
-    fontSize: '15px',
+    fontSize: 16,
     color: '#737373',
-    marginTop: '8px',
-    fontWeight: 400,
+    margin: 0,
   },
-  actions: {
-    marginTop: '48px',
-    width: '100%',
-    maxWidth: '360px',
+  homeActions: {
+    width: 320,
     display: 'flex',
     flexDirection: 'column',
-    gap: '16px',
+    gap: 16,
+    marginTop: 24,
   },
-  primaryBtn: {
+  primaryButton: {
     width: '100%',
     padding: '14px 0',
-    background: '#111111',
-    color: '#FFFFFF',
+    background: '#111',
+    color: '#fff',
     border: 'none',
-    borderRadius: '16px',
-    fontSize: '15px',
+    borderRadius: 12,
+    fontSize: 15,
     fontWeight: 500,
     cursor: 'pointer',
   },
-  secondaryBtn: {
-    width: '100%',
-    padding: '14px 0',
-    background: '#FFFFFF',
-    color: '#111111',
+  secondaryButton: {
+    padding: '10px 20px',
+    background: '#fff',
+    color: '#111',
     border: '1px solid #E5E5E5',
-    borderRadius: '16px',
-    fontSize: '15px',
+    borderRadius: 12,
+    fontSize: 14,
     fontWeight: 500,
     cursor: 'pointer',
-    textAlign: 'center',
   },
   divider: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  or: {
-    fontSize: '13px',
     color: '#A3A3A3',
+    fontSize: 13,
   },
   input: {
     width: '100%',
     padding: '14px 16px',
     border: '1px solid #E5E5E5',
-    borderRadius: '16px',
-    fontSize: '18px',
+    borderRadius: 12,
+    fontSize: 18,
     textAlign: 'center',
-    letterSpacing: '6px',
+    letterSpacing: 6,
     fontWeight: 500,
-    color: '#111111',
-    background: '#FFFFFF',
+    color: '#111',
+    background: '#fff',
     outline: 'none',
-    boxSizing: 'border-box',
     fontFamily: 'monospace',
+    boxSizing: 'border-box',
   },
-  nav: {
-    width: '100%',
-    maxWidth: '400px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: '24px',
-  },
-  brand: {
-    fontSize: '16px',
-    fontWeight: 600,
-    color: '#111111',
-  },
-  statusRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-  },
-  dot: {
-    width: '8px',
-    height: '8px',
-    borderRadius: '50%',
-  },
-  statusLabel: {
-    fontSize: '13px',
-    color: '#737373',
-  },
-  body: {
-    width: '100%',
-    maxWidth: '360px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '24px',
-  },
-  qrWrap: {
-    background: '#FFFFFF',
+  qrWrapper: {
+    background: '#fff',
     border: '1px solid #E5E5E5',
-    borderRadius: '16px',
-    padding: '24px',
-    display: 'flex',
-    justifyContent: 'center',
+    borderRadius: 16,
+    padding: 24,
+    display: 'inline-flex',
   },
   scanHint: {
-    fontSize: '13px',
+    fontSize: 14,
     color: '#737373',
     margin: 0,
   },
-  codeRow: {
-    width: '100%',
+  codeDisplay: {
     display: 'flex',
-    gap: '8px',
     alignItems: 'center',
+    gap: 12,
   },
-  codeBox: {
-    flex: 1,
-    padding: '14px 0',
-    background: '#FFFFFF',
-    border: '1px solid #E5E5E5',
-    borderRadius: '16px',
-    textAlign: 'center',
-  },
-  codeText: {
-    fontSize: '24px',
-    fontWeight: 600,
-    letterSpacing: '8px',
-    color: '#111111',
-    margin: 0,
-    fontFamily: 'monospace',
-  },
-  copyBtn: {
-    padding: '14px 20px',
-    background: '#FFFFFF',
-    border: '1px solid #E5E5E5',
-    borderRadius: '16px',
-    fontSize: '13px',
-    fontWeight: 500,
-    color: '#111111',
-    cursor: 'pointer',
-  },
-  dropZone: {
-    width: '100%',
-    padding: '32px 16px',
-    border: '2px dashed #D4D4D4',
-    borderRadius: '16px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '4px',
-    cursor: 'pointer',
-    background: '#FFFFFF',
-    boxSizing: 'border-box',
-    textAlign: 'center',
-  },
-  dropZoneActive: {
-    border: '2px dashed #111111',
-    background: '#F9F9F9',
-  },
-  filesSection: {
-    width: '100%',
-  },
-  sectionTitle: {
-    fontSize: '13px',
-    fontWeight: 500,
-    color: '#737373',
-    margin: 0,
-  },
-  clearBtn: {
+  copyBtnSmall: {
     background: 'none',
     border: 'none',
-    fontSize: '13px',
     color: '#737373',
+    fontSize: 13,
     cursor: 'pointer',
     textDecoration: 'underline',
   },
+  mainContent: {
+    marginTop: 32,
+  },
+  galleryContainer: {
+    width: '100%',
+  },
+  galleryHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  clearButton: {
+    background: 'none',
+    border: 'none',
+    color: '#737373',
+    fontSize: 13,
+    cursor: 'pointer',
+  },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '8px',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: 12,
   },
-  imgWrap: {
-    aspectRatio: '1',
-    borderRadius: '12px',
-    overflow: 'hidden',
-    border: '1px solid #E5E5E5',
-    background: '#FFFFFF',
+  thumbnail: {
     position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+    aspectRatio: '1',
+    border: '1px solid #E5E5E5',
     cursor: 'pointer',
+    background: '#fff',
   },
   media: {
     width: '100%',
@@ -668,40 +740,56 @@ const s: Record<string, React.CSSProperties> = {
     objectFit: 'cover',
     display: 'block',
   },
-  deleteBtn: {
+  deleteButton: {
     position: 'absolute',
-    top: 4,
-    right: 4,
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: '50%',
     background: 'rgba(0,0,0,0.5)',
     color: '#fff',
     border: 'none',
-    borderRadius: '50%',
-    width: 20,
-    height: 20,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 2,
+    fontSize: 16,
     lineHeight: 1,
+    cursor: 'pointer',
+    zIndex: 2,
   },
   fileInfo: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: 4,
+    left: 4,
     background: 'rgba(0,0,0,0.6)',
     color: '#fff',
-    padding: '2px 6px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     fontSize: 10,
-    pointerEvents: 'none',
+    padding: '2px 6px',
+    borderRadius: 4,
   },
-  transferToast: {
+  emptyState: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#737373',
+    marginTop: 80,
+  },
+  dropZone: {
+    width: 320,
+    height: 200,
+    border: '2px dashed #E5E5E5',
+    borderRadius: 16,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    background: '#fff',
+    transition: 'border-color 0.2s, background 0.2s',
+    textAlign: 'center',
+    userSelect: 'none',
+  },
+  toast: {
     position: 'fixed',
     bottom: 24,
     left: '50%',
@@ -709,14 +797,13 @@ const s: Record<string, React.CSSProperties> = {
     background: '#111',
     color: '#fff',
     padding: '10px 20px',
-    borderRadius: '12px',
-    fontSize: '13px',
+    borderRadius: 12,
+    fontSize: 13,
     fontWeight: 500,
     zIndex: 999,
     display: 'flex',
     flexDirection: 'column',
     gap: 6,
-    minWidth: 200,
   },
   progressBar: {
     width: '100%',
@@ -732,35 +819,32 @@ const s: Record<string, React.CSSProperties> = {
   },
   modalOverlay: {
     position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    inset: 0,
     background: 'rgba(0,0,0,0.8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
-    padding: '24px',
+    padding: 24,
   },
   modalContent: {
     position: 'relative',
     maxWidth: '90vw',
     maxHeight: '90vh',
-    borderRadius: '12px',
+    borderRadius: 12,
     overflow: 'hidden',
     background: '#fff',
   },
   modalClose: {
     position: 'absolute',
-    top: '12px',
-    right: '12px',
+    top: 12,
+    right: 12,
     background: 'rgba(255,255,255,0.8)',
     border: 'none',
     borderRadius: '50%',
-    width: '36px',
-    height: '36px',
-    fontSize: '18px',
+    width: 36,
+    height: 36,
+    fontSize: 18,
     cursor: 'pointer',
     zIndex: 1,
   },
@@ -772,17 +856,15 @@ const s: Record<string, React.CSSProperties> = {
   },
   downloadBtn: {
     position: 'absolute',
-    bottom: '12px',
-    right: '12px',
+    bottom: 12,
+    right: 12,
     background: '#111',
     color: '#fff',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: 8,
     padding: '8px 16px',
-    fontSize: '13px',
+    fontSize: 13,
     fontWeight: 500,
     cursor: 'pointer',
   },
 };
-
-export default App;
