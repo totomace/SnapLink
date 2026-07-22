@@ -243,7 +243,6 @@ function GuestScreen({
         </button>
       </div>
 
-      {/* Gallery ảnh đã gửi */}
       <div style={{ marginTop: 48 }}>
         <div style={styles.galleryHeader}>
           <span style={{ fontWeight: 500, color: '#111' }}>Sent Photos</span>
@@ -257,6 +256,52 @@ function GuestScreen({
           showClear={false}
         />
       </div>
+    </div>
+  );
+}
+
+// Thanh tiến trình mới
+function TransferProgress({
+  status,
+}: {
+  status: {
+    type: 'sending' | 'receiving';
+    current?: number;
+    total?: number;
+    name?: string;
+  };
+}) {
+  const percent =
+    status.total && status.current !== undefined
+      ? Math.round(((status.current || 0) / status.total) * 100)
+      : undefined;
+
+  return (
+    <div style={styles.progressContainer}>
+      <div style={styles.progressHeader}>
+        <span style={{ fontWeight: 500 }}>
+          {status.type === 'sending' ? 'Sending' : 'Receiving'}
+          {status.name ? ` ${status.name}` : ''}
+        </span>
+        {status.total && status.current !== undefined && (
+          <span style={{ color: '#737373', fontSize: 13 }}>
+            {status.current}/{status.total} files
+          </span>
+        )}
+      </div>
+      <div style={styles.progressBarLarge}>
+        <div
+          style={{
+            ...styles.progressFillLarge,
+            width: `${percent ?? 0}%`,
+          }}
+        />
+      </div>
+      {percent !== undefined && (
+        <div style={{ textAlign: 'right', fontSize: 12, color: '#737373', marginTop: 4 }}>
+          {percent}%
+        </div>
+      )}
     </div>
   );
 }
@@ -309,14 +354,12 @@ export default function App() {
     setHistory([]);
   };
 
-  // Phát hiện điện thoại kết nối
   useEffect(() => {
     if (isHost && lastMessage?.type === 'device-joined') {
       setPhoneConnected(true);
     }
   }, [lastMessage, isHost]);
 
-  // Tải lịch sử ảnh từ IndexedDB (cho cả host và guest)
   useEffect(() => {
     (async () => {
       try {
@@ -328,7 +371,7 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, []); // Chạy một lần khi mount
+  }, []);
 
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
     if (!folder) return;
@@ -346,10 +389,9 @@ export default function App() {
     }
   };
 
-  // Nhận file (chỉ host xử lý)
   useEffect(() => {
     if (!lastMessage?.type || lastMessage.type !== 'file' || !lastMessage.data) return;
-    if (!isHost) return; // Chỉ host nhận ảnh
+    if (!isHost) return;
 
     setTransferStatus({ type: 'receiving', name: lastMessage.name });
     const processReceived = async () => {
@@ -380,11 +422,12 @@ export default function App() {
     processReceived();
   }, [lastMessage, folder, isHost]);
 
-  // Gửi file (cả host và guest đều có thể gửi, nhưng guest chủ yếu gửi)
   const processFiles = useCallback(async (files: File[]) => {
-    setTransferStatus({ type: 'sending', current: 0, total: files.length });
+    setTransferStatus({ type: 'sending', current: 0, total: files.length, name: files[0]?.name });
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      // Cập nhật tên file hiện tại khi gửi nhiều file
+      setTransferStatus(prev => prev ? { ...prev, current: i + 1, name: file.name } : null);
       const buffer = await file.arrayBuffer();
       const base64 = btoa(
         new Uint8Array(buffer).reduce((d, b) => d + String.fromCharCode(b), '')
@@ -399,7 +442,6 @@ export default function App() {
         timestamp,
       });
 
-      // Lưu vào lịch sử cho cả host và guest
       const sentFile: FileRecord = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: file.name,
@@ -415,7 +457,6 @@ export default function App() {
       } catch (err) {
         console.error(err);
       }
-      setTransferStatus(prev => prev ? { ...prev, current: i + 1 } : null);
     }
     setTransferStatus(null);
   }, [sendMessage]);
@@ -477,7 +518,6 @@ export default function App() {
 
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
 
-  // ---- RENDER ----
   if (!roomCode) {
     return (
       <div style={styles.shell}>
@@ -521,6 +561,9 @@ export default function App() {
         roomCode={roomCode}
       />
 
+      {/* Thanh tiến trình nếu có transfer */}
+      {transferStatus && <TransferProgress status={transferStatus} />}
+
       {isHost ? (
         phoneConnected ? (
           <div style={styles.mainContent}>
@@ -562,26 +605,6 @@ export default function App() {
           onSelect={setSelectedFile}
           onDelete={removeFile}
         />
-      )}
-
-      {transferStatus && (
-        <div style={styles.toast}>
-          {transferStatus.type === 'sending' && transferStatus.total ? (
-            <>
-              <span>Sending {transferStatus.current}/{transferStatus.total} files...</span>
-              <div style={styles.progressBar}>
-                <div
-                  style={{
-                    ...styles.progressFill,
-                    width: `${((transferStatus.current || 0) / transferStatus.total) * 100}%`,
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <span>Receiving {transferStatus.name}...</span>
-          )}
-        </div>
       )}
 
       {selectedFile && (
@@ -854,6 +877,32 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 6,
+  },
+  // Progress mới
+  progressContainer: {
+    background: '#fff',
+    border: '1px solid #E5E5E5',
+    borderRadius: 12,
+    padding: '16px 20px',
+    marginBottom: 24,
+  },
+  progressHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  progressBarLarge: {
+    width: '100%',
+    height: 6,
+    background: '#F0F0F0',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFillLarge: {
+    height: '100%',
+    background: '#111',
+    transition: 'width 0.3s ease',
   },
   progressBar: {
     width: '100%',
