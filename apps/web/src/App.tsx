@@ -122,12 +122,14 @@ function GalleryView({
   onSelect,
   onDelete,
   onClear,
+  showClear = true,
 }: {
   history: FileRecord[];
   loading: boolean;
   onSelect: (file: FileRecord) => void;
   onDelete: (id: string) => void;
   onClear: () => void;
+  showClear?: boolean;
 }) {
   if (history.length === 0) {
     return (
@@ -143,12 +145,14 @@ function GalleryView({
 
   return (
     <div style={styles.galleryContainer}>
-      <div style={styles.galleryHeader}>
-        <span style={{ fontWeight: 500, color: '#111' }}>Photos</span>
-        <button onClick={onClear} style={styles.clearButton}>
-          Clear all
-        </button>
-      </div>
+      {showClear && (
+        <div style={styles.galleryHeader}>
+          <span style={{ fontWeight: 500, color: '#111' }}>Photos</span>
+          <button onClick={onClear} style={styles.clearButton}>
+            Clear all
+          </button>
+        </div>
+      )}
       <div style={styles.grid}>
         {history.map((file) => (
           <div
@@ -187,13 +191,17 @@ function GalleryView({
   );
 }
 
-function SenderScreen({
+function GuestScreen({
   onSendFiles,
   isDragging,
   onDragOver,
   onDragLeave,
   onDrop,
   onLeave,
+  history,
+  loading,
+  onSelect,
+  onDelete,
 }: {
   onSendFiles: () => void;
   isDragging: boolean;
@@ -201,39 +209,60 @@ function SenderScreen({
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent) => void;
   onLeave: () => void;
+  history: FileRecord[];
+  loading: boolean;
+  onSelect: (file: FileRecord) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
-    <div style={styles.centerContent}>
-      <div
-        style={{
-          ...styles.dropZone,
-          borderColor: isDragging ? '#111' : '#E5E5E5',
-          background: isDragging ? '#F9F9F9' : '#fff',
-        }}
-        onClick={onSendFiles}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-      >
-        <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
-        <div style={{ fontWeight: 500, color: '#111', marginBottom: 4 }}>
-          Tap to select photos
+    <div style={{ marginTop: 32 }}>
+      <div style={styles.centerContent}>
+        <div
+          style={{
+            ...styles.dropZone,
+            borderColor: isDragging ? '#111' : '#E5E5E5',
+            background: isDragging ? '#F9F9F9' : '#fff',
+            height: 160,
+          }}
+          onClick={onSendFiles}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
+          <div style={{ fontWeight: 500, color: '#111', marginBottom: 4 }}>
+            Tap to select photos
+          </div>
+          <div style={{ color: '#737373', fontSize: 13 }}>or drag & drop</div>
         </div>
-        <div style={{ color: '#737373', fontSize: 13 }}>or drag & drop</div>
+        <p style={{ color: '#737373', fontSize: 13, marginTop: 16 }}>
+          Photos will be sent instantly to the laptop
+        </p>
+        <button onClick={onLeave} style={{ ...styles.secondaryButton, marginTop: 16 }}>
+          Leave Room
+        </button>
       </div>
-      <p style={{ color: '#737373', fontSize: 13, marginTop: 16 }}>
-        Photos will be sent instantly to the laptop
-      </p>
-      <button onClick={onLeave} style={{ ...styles.secondaryButton, marginTop: 16 }}>
-        Leave Room
-      </button>
+
+      {/* Gallery ảnh đã gửi */}
+      <div style={{ marginTop: 48 }}>
+        <div style={styles.galleryHeader}>
+          <span style={{ fontWeight: 500, color: '#111' }}>Sent Photos</span>
+        </div>
+        <GalleryView
+          history={history}
+          loading={loading}
+          onSelect={onSelect}
+          onDelete={onDelete}
+          onClear={() => {}}
+          showClear={false}
+        />
+      </div>
     </div>
   );
 }
 
 /* ---------- MAIN APP ---------- */
 export default function App() {
-  // Lấy room từ URL nếu có
   const initialRoom = (new URLSearchParams(window.location.search).get('room') || '').trim().toUpperCase();
   const [roomCode, setRoomCode] = useState<string | null>(initialRoom || null);
   const [isHost, setIsHost] = useState<boolean | null>(initialRoom ? false : null);
@@ -253,7 +282,6 @@ export default function App() {
 
   const { connected, lastMessage, sendMessage } = useWebSocket(roomCode);
 
-  // Xác định host/guest khi tạo hoặc join phòng thủ công
   const createRoom = async () => {
     try {
       if ('Notification' in window && Notification.permission === 'default') {
@@ -281,16 +309,15 @@ export default function App() {
     setHistory([]);
   };
 
-  // Phát hiện điện thoại kết nối (chỉ host mới quan tâm)
+  // Phát hiện điện thoại kết nối
   useEffect(() => {
     if (isHost && lastMessage?.type === 'device-joined') {
       setPhoneConnected(true);
     }
   }, [lastMessage, isHost]);
 
-  // Tải lịch sử ảnh (chỉ host mới cần)
+  // Tải lịch sử ảnh từ IndexedDB (cho cả host và guest)
   useEffect(() => {
-    if (!isHost) return;
     (async () => {
       try {
         const files = await getAllFiles();
@@ -301,9 +328,8 @@ export default function App() {
         setLoading(false);
       }
     })();
-  }, [isHost]);
+  }, []); // Chạy một lần khi mount
 
-  // Lưu ảnh nhận được vào gallery và folder
   const saveToFolder = async (fileName: string, data: string, fileType: string) => {
     if (!folder) return;
     try {
@@ -320,11 +346,10 @@ export default function App() {
     }
   };
 
+  // Nhận file (chỉ host xử lý)
   useEffect(() => {
     if (!lastMessage?.type || lastMessage.type !== 'file' || !lastMessage.data) return;
-
-    // Chỉ host mới xử lý ảnh nhận
-    if (!isHost) return;
+    if (!isHost) return; // Chỉ host nhận ảnh
 
     setTransferStatus({ type: 'receiving', name: lastMessage.name });
     const processReceived = async () => {
@@ -355,7 +380,7 @@ export default function App() {
     processReceived();
   }, [lastMessage, folder, isHost]);
 
-  // Guest gửi file
+  // Gửi file (cả host và guest đều có thể gửi, nhưng guest chủ yếu gửi)
   const processFiles = useCallback(async (files: File[]) => {
     setTransferStatus({ type: 'sending', current: 0, total: files.length });
     for (let i = 0; i < files.length; i++) {
@@ -373,13 +398,28 @@ export default function App() {
         data: base64,
         timestamp,
       });
-      // Guest không lưu vào gallery, nhưng nếu muốn lưu lịch sử gửi có thể thêm vào IndexedDB riêng (tạm bỏ)
+
+      // Lưu vào lịch sử cho cả host và guest
+      const sentFile: FileRecord = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: file.name,
+        fileType: file.type,
+        size: file.size,
+        data: base64,
+        direction: 'sent',
+        timestamp,
+      };
+      try {
+        await addFile(sentFile);
+        setHistory(prev => [sentFile, ...prev]);
+      } catch (err) {
+        console.error(err);
+      }
       setTransferStatus(prev => prev ? { ...prev, current: i + 1 } : null);
     }
     setTransferStatus(null);
   }, [sendMessage]);
 
-  // Xóa file (chỉ host dùng)
   const removeFile = async (id: string) => {
     try {
       await deleteFile(id);
@@ -435,10 +475,9 @@ export default function App() {
     } catch { /* user cancelled */ }
   };
 
-  // ----- Render -----
   const url = roomCode ? `${window.location.origin}?room=${roomCode}` : '';
 
-  // Trang chủ
+  // ---- RENDER ----
   if (!roomCode) {
     return (
       <div style={styles.shell}>
@@ -473,7 +512,6 @@ export default function App() {
     );
   }
 
-  // Trong phòng
   return (
     <div style={styles.shell}>
       <Header
@@ -484,7 +522,6 @@ export default function App() {
       />
 
       {isHost ? (
-        // Giao diện Host (laptop)
         phoneConnected ? (
           <div style={styles.mainContent}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16, gap: 8 }}>
@@ -513,18 +550,20 @@ export default function App() {
           />
         )
       ) : (
-        // Giao diện Guest (điện thoại)
-        <SenderScreen
+        <GuestScreen
           onSendFiles={openFileDialog}
           isDragging={isDragging}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onLeave={leaveRoom}
+          history={history}
+          loading={loading}
+          onSelect={setSelectedFile}
+          onDelete={removeFile}
         />
       )}
 
-      {/* Transfer toast */}
       {transferStatus && (
         <div style={styles.toast}>
           {transferStatus.type === 'sending' && transferStatus.total ? (
@@ -545,7 +584,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal xem ảnh */}
       {selectedFile && (
         <div style={styles.modalOverlay} onClick={() => setSelectedFile(null)}>
           <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -624,7 +662,7 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 60,
+    marginTop: 40,
     gap: 24,
   },
   title: {
